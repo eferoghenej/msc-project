@@ -1,0 +1,80 @@
+service: currency-rates-service
+
+frameworkVersion: '4'
+
+provider:
+  name: aws
+  runtime: python3.12
+  region: eu-north-1
+  environment:
+    API_APP_ID: ${env:API_APP_ID} # The Open Exchange Rates API key
+
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:Scan
+        - dynamodb:Query
+        - dynamodb:PutItem
+      Resource: "arn:aws:dynamodb:${self:provider.region}:*:table/CurrencyRates"
+    - Effect: Allow
+      Action:
+        - logs:CreateLogGroup
+        - logs:CreateLogStream
+        - logs:PutLogEvents
+      Resource: "*"
+    - Effect: Allow
+      Action:
+        - kinesis:PutRecord
+        - kinesis:PutRecords
+      Resource: "arn:aws:kinesis:${self:provider.region}:*:stream/CurrencyRatesStream"
+
+functions:
+  FetchCurrencyRates:
+    handler: handler.lambda_handler
+    events:
+      - http:
+          path: rates
+          method: get
+          cors: true
+      - schedule:
+          rate: rate(30 seconds)
+          enabled: true
+
+  FetchRatesDB:  # New function
+    handler: lambda_function.fetch_currency_data
+    events:
+      - http:
+          path: fetch-rates
+          method: get
+          cors: true  # Enable CORS for web access        
+
+resources:
+  Resources:
+    CurrencyRatesDynamoDBTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: CurrencyRates
+        AttributeDefinitions:
+          - AttributeName: CurrencyPair
+            AttributeType: S
+        KeySchema:
+          - AttributeName: CurrencyPair
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
+
+    CurrencyRatesStream:
+      Type: AWS::Kinesis::Stream
+      Properties:
+        ShardCount: 1
+
+package:
+  exclude:
+    - node_modules/**
+    - .git/**
+
+plugins:
+  - serverless-python-requirements
+
+custom:
+  pythonRequirements:
+    dockerizePip: true
